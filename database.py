@@ -366,6 +366,39 @@ def get_user_phrase_count(user_id):
     return count
 
 
+def get_user_phrases_list(user_id, limit=50):
+    """Возвращает список фраз пользователя для выбора при удалении"""
+    conn = get_connection()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT p.phrase_id, p.english_phrase, p.russian_translation, 
+                   up.correct_answers, up.is_learned
+            FROM user_phrases up
+            JOIN phrases p ON up.phrase_id = p.phrase_id
+            WHERE up.user_id = %s
+            ORDER BY up.added_at DESC
+            LIMIT %s
+        """, (user_id, limit))
+
+        phrases = cur.fetchall()
+        columns = ['phrase_id', 'english_phrase', 'russian_translation', 'correct_answers', 'is_learned']
+        
+        cur.close()
+        conn.close()
+        
+        return [
+            row_to_dict(row, columns)
+            for row in phrases
+        ]
+    except Exception as e:
+        print(f"❌ Ошибка при получении списка фраз пользователя: {e}")
+        cur.close()
+        conn.close()
+        return []
+
+
 def get_learned_phrases_count(user_id):
     """Возвращает количество изученных фраз"""
     conn = get_connection()
