@@ -1,117 +1,189 @@
+import atexit
 import random
 import time
-from telebot import types, TeleBot, custom_filters
-from telebot.storage import StateMemoryStorage
+import logging
+
+from telebot import TeleBot, custom_filters, types
 from telebot.handler_backends import State, StatesGroup
-import atexit
+from telebot.storage import StateMemoryStorage
 
 import config
 from database import (
-    init_db, add_user, get_random_phrase_for_user,
-    get_wrong_phrases, add_custom_phrase, delete_user_phrase,
-    get_user_phrase_count, load_initial_phrases, update_user_progress,
-    get_learned_phrases_count, debug_user_progress, get_user_phrases_list
+    add_custom_phrase,
+    add_user,
+    debug_user_progress,
+    delete_user_phrase,
+    get_learned_phrases_count,
+    get_random_phrase_for_user,
+    get_user_phrase_count,
+    get_user_phrases_list,
+    get_wrong_phrases,
+    init_db,
+    load_initial_phrases,
+    update_user_progress,
 )
 from reminders import ReminderSystem
 from yandex_api import get_phrase_examples
 
-print('🚀 Запуск EnglishCard Bot...')
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+print("🚀 Запуск EnglishCard Bot...")
 
 # Инициализация бота
 state_storage = StateMemoryStorage()
 bot = TeleBot(config.BOT_TOKEN, state_storage=state_storage)
+<<<<<<< HEAD
 
 # Инициализация системы напоминаний
 reminder_system = ReminderSystem(bot)
 
 # Администраторы бота
 ADMIN_USERNAMES = ['@MrGrigorev0ne']
+=======
+reminder_system = ReminderSystem(bot)
+
+ADMIN_USERNAMES = ["@MrGrigorev0ne"]
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
 ADMIN_IDS = []
 
 
 class Command:
-    ADD_PHRASE = 'Добавить фразу ➕'
-    DELETE_PHRASE = 'Удалить фразу 🔙'
-    NEXT = 'Дальше ⏭'
-    STATS = 'Статистика 📊'
-    EXAMPLES = 'Примеры 💡'
+    ADD_PHRASE = "Добавить фразу ➕"
+    DELETE_PHRASE = "Удалить фразу 🔙"
+    NEXT = "Дальше ⏭"
+    STATS = "Статистика 📊"
+    EXAMPLES = "Примеры 💡"
 
 
 class MyStates(StatesGroup):
     target_phrase = State()
     translate_phrase = State()
-    another_phrases = State()
     add_new_phrase = State()
 
 
 def is_admin(user_id, username):
     """Проверяет, является ли пользователь администратором"""
     if username in ADMIN_USERNAMES:
-        if user_id not in ADMIN_IDS:
-            ADMIN_IDS.append(user_id)
+        ADMIN_IDS.append(user_id)
         return True
-    if user_id in ADMIN_IDS:
-        return True
-    return False
+    return user_id in ADMIN_IDS
 
 
 def create_learning_keyboard(phrases, target_russian):
+<<<<<<< HEAD
     """Создает клавиатуру для изучения фраз с кнопкой примеров"""
+=======
+    """Создает клавиатуру с вариантами ответов."""
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    buttons = []
 
-    phrase_buttons = [types.KeyboardButton(phrase['english_phrase']) for phrase in phrases]
-    buttons.extend(phrase_buttons)
+    buttons = [types.KeyboardButton(phrase["english_phrase"]) for phrase in phrases]
     random.shuffle(buttons)
 
-    next_btn = types.KeyboardButton(Command.NEXT)
-    add_phrase_btn = types.KeyboardButton(Command.ADD_PHRASE)
-    delete_phrase_btn = types.KeyboardButton(Command.DELETE_PHRASE)
-    stats_btn = types.KeyboardButton(Command.STATS)
-    examples_btn = types.KeyboardButton(Command.EXAMPLES)
+    buttons.extend(
+        [
+            types.KeyboardButton(Command.NEXT),
+            types.KeyboardButton(Command.ADD_PHRASE),
+            types.KeyboardButton(Command.DELETE_PHRASE),
+            types.KeyboardButton(Command.STATS),
+            types.KeyboardButton(Command.EXAMPLES),
+        ]
+    )
 
-    buttons.extend([next_btn, add_phrase_btn, delete_phrase_btn, stats_btn, examples_btn])
     markup.add(*buttons)
-
-    greeting = f"🇷🇺 Выбери перевод:\n\"{target_russian}\""
+    greeting = f'🇷🇺 Выбери перевод:\n"{target_russian}"'
     return greeting, markup
 
 
-@bot.message_handler(commands=['start', 'phrases'])
+def ensure_unique_answers(answers, target_phrase_id, target_text, user_id):
+    """
+    Гарантирует наличие 4 уникальных вариантов ответа.
+    Возвращает список из 4 уникальных вариантов.
+    """
+    # Убедимся, что правильный ответ есть в списке
+    correct_answer = None
+    other_answers = []
+
+    for answer in answers:
+        if answer["phrase_id"] == target_phrase_id:
+            correct_answer = answer
+        else:
+            other_answers.append(answer)
+
+    # Если правильного ответа нет (не должно случиться), создаем его
+    if not correct_answer:
+        correct_answer = {
+            "phrase_id": target_phrase_id,
+            "english_phrase": target_text,
+            "russian_translation": "",
+        }
+
+    # Берем до 3 уникальных неправильных ответов
+    unique_wrong = []
+    seen_texts = set()
+
+    for answer in other_answers:
+        text = answer["english_phrase"].lower().strip()
+        if text not in seen_texts and text != target_text.lower():
+            seen_texts.add(text)
+            unique_wrong.append(answer)
+            if len(unique_wrong) == 3:
+                break
+
+    # Если недостаточно уникальных неправильных ответов, добавляем фейковые
+    while len(unique_wrong) < 3:
+        fake_id = -len(unique_wrong)  # Отрицательные ID для фейковых
+        fake_text = f"Вариант {len(unique_wrong) + 1}"
+        unique_wrong.append({
+            "phrase_id": fake_id,
+            "english_phrase": fake_text,
+            "russian_translation": "",
+        })
+
+    # Смешиваем правильный с неправильными
+    final_answers = [correct_answer] + unique_wrong
+    random.shuffle(final_answers)
+
+    return final_answers
+
+
+@bot.message_handler(commands=["start", "phrases"])
 def start_bot(message):
-    cid = message.chat.id
-    user_id = message.from_user.id
-    username = message.from_user.username
-    first_name = message.from_user.first_name
+    """Обработчик команды /start."""
+    user = message.from_user
+    add_user(user.id, user.username, user.first_name)
 
-    add_user(user_id, username, first_name)
+    welcome_text = (
+        "🇬🇧 *Добро пожаловать в EnglishCard!* 🇺🇸\n\n"
+        "Изучайте английские фразы через интерактивные карточки.\n\n"
+        "*Команды:*\n"
+        "/start — Начать\n"
+        "/phrases — Новая фраза\n"
+        "/stats — Статистика\n"
+        "/examples — Примеры использования\n\n"
+        "*Готовы начать?* Жмите «Дальше ⏭»!"
+    )
 
-    if is_admin(user_id, username):
-        print(f"👑 Администратор вошел в систему: {username} (ID: {user_id})")
-
-    welcome_text = """
-🇬🇧 *Добро пожаловать в EnglishCard!* 🇺🇸
-
-Изучайте английские фразы через интерактивные карточки.
-
-*Команды:*
-/start - Начать
-/phrases - Новая фраза  
-/stats - Статистика
-/examples - Примеры использования
-
-*Готовы начать?* Жмите «Дальше ⏭»!
-"""
-
-    bot.send_message(cid, welcome_text, parse_mode='Markdown')
+    bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown")
     show_next_phrase(message)
 
 
 def show_next_phrase(message):
+<<<<<<< HEAD
     """Показывает следующую фразу для изучения без повтора правильного ответа в кнопках"""
     cid = message.chat.id
+=======
+    """Показывает следующую фразу для изучения."""
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
     user_id = message.from_user.id
+    cid = message.chat.id
 
+<<<<<<< HEAD
     # Добавим отладочную информацию
     print(f"🔍 Пользователь {user_id} запросил следующую фразу")
 
@@ -119,12 +191,20 @@ def show_next_phrase(message):
     phrase_data = get_random_phrase_for_user(user_id)
 
     if not phrase_data:
+=======
+    phrase = get_random_phrase_for_user(user_id)
+    if not phrase:
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        add_btn = types.KeyboardButton(Command.ADD_PHRASE)
-        markup.add(add_btn)
-        bot.send_message(cid, "У вас нет фраз для изучения. Добавьте первые фразы!", reply_markup=markup)
+        markup.add(types.KeyboardButton(Command.ADD_PHRASE))
+        bot.send_message(
+            cid,
+            "У вас нет фраз для изучения. Добавьте первую фразу.",
+            reply_markup=markup,
+        )
         return
 
+<<<<<<< HEAD
     # Создаем набор неправильных ответов с обязательным исключением правильного
     # и исключением дублей ошибок
     wrong_phrases_total = 10  # Запросим с запасом чтобы убрать повторы
@@ -177,10 +257,31 @@ def show_next_phrase(message):
     random.shuffle(unique_phrases)
 
     greeting, markup = create_learning_keyboard(unique_phrases, phrase_data['russian_translation'])
+=======
+    # Получаем неправильные варианты
+    wrong_phrases = get_wrong_phrases(phrase["phrase_id"], user_id, limit=6)
+
+    # Собираем все варианты ответов
+    all_answers = [phrase] + wrong_phrases
+
+    # Гарантируем 4 уникальных варианта
+    final_answers = ensure_unique_answers(
+        all_answers,
+        phrase["phrase_id"],
+        phrase["english_phrase"],
+        user_id
+    )
+
+    greeting, markup = create_learning_keyboard(
+        final_answers,
+        phrase["russian_translation"],
+    )
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
     bot.send_message(cid, greeting, reply_markup=markup)
 
     bot.set_state(user_id, MyStates.target_phrase, cid)
     with bot.retrieve_data(user_id, cid) as data:
+<<<<<<< HEAD
         data['target_phrase'] = phrase_data['english_phrase']
         data['target_phrase_id'] = phrase_data['phrase_id']
         data['translate_phrase'] = phrase_data['russian_translation']
@@ -325,8 +426,34 @@ def show_stats(message):
                  f"🎯 Прогресс: {learned_phrases}/{total_phrases}"
 
     bot.send_message(cid, stats_text, parse_mode='Markdown')
+=======
+        data.update(
+            {
+                "target_phrase": phrase["english_phrase"],
+                "target_phrase_id": phrase["phrase_id"],
+                "translate_phrase": phrase["russian_translation"],
+                "current_english_phrase": phrase["english_phrase"],
+            }
+        )
 
 
+@bot.message_handler(func=lambda m: m.text == Command.NEXT)
+def next_phrase(message):
+    """Обработчик кнопки 'Дальше'."""
+    show_next_phrase(message)
+
+
+@bot.message_handler(func=lambda m: m.text == Command.STATS)
+def show_stats(message):
+    """Показывает статистику пользователя."""
+    user_id = message.from_user.id
+    total = get_user_phrase_count(user_id)
+    learned = get_learned_phrases_count(user_id)
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
+
+    progress = int((learned / total * 100)) if total > 0 else 0
+
+<<<<<<< HEAD
 def add_phrase(message):
     """Начинает процесс добавления новой фразы"""
     cid = message.chat.id
@@ -346,9 +473,19 @@ def add_phrase(message):
         "Или нажмите '❌ Отмена' для отмены операции",
         reply_markup=markup,
         parse_mode='Markdown'
+=======
+    text = (
+        "📊 *Ваша статистика:*\n\n"
+        f"📚 Всего фраз: {total}\n"
+        f"✅ Изучено: {learned}\n"
+        f"🎯 Прогресс: {progress}%\n"
+        f"📈 Соотношение: {learned}/{total}"
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
     )
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 
+<<<<<<< HEAD
 @bot.message_handler(state=MyStates.add_new_phrase)
 def save_new_phrase(message):
     """Сохраняет новую фразу"""
@@ -624,8 +761,74 @@ def process_broadcast_message(message):
                  f"📨 Всего пользователей: {len(users)}"
 
         bot.send_message(cid, report, parse_mode='Markdown')
+=======
+@bot.message_handler(func=lambda m: m.text == Command.EXAMPLES)
+def show_examples(message):
+    """Показывает примеры использования текущей фразы."""
+    cid = message.chat.id
+    user_id = message.from_user.id
 
+    with bot.retrieve_data(user_id, cid) as data:
+        phrase = data.get("current_english_phrase")
+
+    if not phrase:
+        bot.send_message(cid, "❌ Сначала выберите фразу.")
+        return
+
+    bot.send_message(cid, "🔍 Ищу примеры использования...")
+    try:
+        examples = get_phrase_examples(phrase)
+        if examples.startswith("❌"):
+            bot.send_message(cid, examples)
+        else:
+            bot.send_message(
+                cid,
+                f"📚 *Примеры для фразы:* `{phrase}`\n\n{examples}",
+                parse_mode="Markdown",
+            )
     except Exception as e:
+        logger.error(f"Ошибка при получении примеров: {e}")
+        bot.send_message(
+            cid,
+            "❌ Произошла ошибка при получении примеров. Попробуйте позже.",
+        )
+
+
+@bot.message_handler(state=MyStates.target_phrase)
+def check_answer(message):
+    """Проверяет ответ пользователя."""
+    user_id = message.from_user.id
+    cid = message.chat.id
+
+    # Игнорируем команды
+    if message.text in [cmd for cmd in vars(Command).values()]:
+        return
+
+    with bot.retrieve_data(user_id, cid) as data:
+        correct = data["target_phrase"]
+        phrase_id = data["target_phrase_id"]
+        translation = data["translate_phrase"]
+
+    is_correct = message.text.lower() == correct.lower()
+
+    try:
+        update_user_progress(user_id, phrase_id, is_correct)
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
+
+        if is_correct:
+            bot.send_message(cid, "✅ *Правильно!* 🎉", parse_mode="Markdown")
+            time.sleep(1)
+            show_next_phrase(message)
+        else:
+            bot.send_message(
+                cid,
+                f"❌ *Неправильно.*\n\n"
+                f"Правильный ответ: `{correct}`\n"
+                f"Перевод: {translation}",
+                parse_mode="Markdown",
+            )
+    except Exception as e:
+<<<<<<< HEAD
         bot.send_message(cid, f"❌ Ошибка при рассылке: {e}")
     finally:
         cur.close()
@@ -741,12 +944,14 @@ def handle_callback(call):
     elif call.data == "send_to_all":
         # Запрашиваем сообщение для рассылки
         bot.answer_callback_query(call.id)
+=======
+        logger.error(f"Ошибка при обновлении прогресса: {e}")
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
         bot.send_message(
             cid,
-            "📢 *Режим рассылки*\n\n"
-            "Отправьте сообщение, которое будет разослано всем пользователям:",
-            parse_mode='Markdown'
+            "❌ Произошла ошибка при обработке ответа. Попробуйте еще раз.",
         )
+<<<<<<< HEAD
         bot.register_next_step_handler(call.message, process_broadcast_message)
 
     elif call.data == "user_stats":
@@ -815,12 +1020,48 @@ def initialize_bot():
 
     print("✅ Бот готов к работе!")
     print("🤖 Запуск бота...")
+=======
+
+
+def initialize_bot():
+    """Инициализирует бота и запускает все системы."""
+    logger.info("Инициализация бота...")
+
+    try:
+        init_db()
+        logger.info("База данных инициализирована")
+
+        load_initial_phrases()
+        logger.info("Начальные фразы загружены")
+
+        reminder_system.start()
+        logger.info("Система напоминаний запущена")
+
+        atexit.register(reminder_system.shutdown)
+        logger.info("✅ Бот готов к работе!")
+
+    except Exception as e:
+        logger.error(f"Ошибка при инициализации бота: {e}")
+        raise
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
 
 
 # Добавляем кастомные фильтры для работы с состояниями
 bot.add_custom_filter(custom_filters.StateFilter(bot))
 
+<<<<<<< HEAD
 # Инициализация и запуск
 if __name__ == '__main__':
     initialize_bot()
     bot.infinity_polling(skip_pending=True)
+=======
+if __name__ == "__main__":
+    try:
+        initialize_bot()
+        bot.infinity_polling(skip_pending=True, timeout=60)
+    except KeyboardInterrupt:
+        logger.info("Бот остановлен пользователем")
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
+        raise
+>>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
