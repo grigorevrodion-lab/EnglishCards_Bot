@@ -24,6 +24,7 @@ from database import (
 )
 from reminders import ReminderSystem
 from yandex_api import get_phrase_examples
+from database import get_last_phrase_id, mark_phrase_shown
 
 # Настройка логирования
 logging.basicConfig(
@@ -37,18 +38,12 @@ print("🚀 Запуск EnglishCard Bot...")
 # Инициализация бота
 state_storage = StateMemoryStorage()
 bot = TeleBot(config.BOT_TOKEN, state_storage=state_storage)
-<<<<<<< HEAD
 
 # Инициализация системы напоминаний
 reminder_system = ReminderSystem(bot)
 
 # Администраторы бота
-ADMIN_USERNAMES = ['@MrGrigorev0ne']
-=======
-reminder_system = ReminderSystem(bot)
-
 ADMIN_USERNAMES = ["@MrGrigorev0ne"]
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
 ADMIN_IDS = []
 
 
@@ -75,11 +70,7 @@ def is_admin(user_id, username):
 
 
 def create_learning_keyboard(phrases, target_russian):
-<<<<<<< HEAD
     """Создает клавиатуру для изучения фраз с кнопкой примеров"""
-=======
-    """Создает клавиатуру с вариантами ответов."""
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
 
     buttons = [types.KeyboardButton(phrase["english_phrase"]) for phrase in phrases]
@@ -139,11 +130,13 @@ def ensure_unique_answers(answers, target_phrase_id, target_text, user_id):
     while len(unique_wrong) < 3:
         fake_id = -len(unique_wrong)  # Отрицательные ID для фейковых
         fake_text = f"Вариант {len(unique_wrong) + 1}"
-        unique_wrong.append({
-            "phrase_id": fake_id,
-            "english_phrase": fake_text,
-            "russian_translation": "",
-        })
+        unique_wrong.append(
+            {
+                "phrase_id": fake_id,
+                "english_phrase": fake_text,
+                "russian_translation": "",
+            }
+        )
 
     # Смешиваем правильный с неправильными
     final_answers = [correct_answer] + unique_wrong
@@ -174,27 +167,26 @@ def start_bot(message):
 
 
 def show_next_phrase(message):
-<<<<<<< HEAD
-    """Показывает следующую фразу для изучения без повтора правильного ответа в кнопках"""
-    cid = message.chat.id
-=======
-    """Показывает следующую фразу для изучения."""
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
+    """Показывает следующую фразу для изучения без повторов подряд."""
     user_id = message.from_user.id
     cid = message.chat.id
 
-<<<<<<< HEAD
-    # Добавим отладочную информацию
-    print(f"🔍 Пользователь {user_id} запросил следующую фразу")
+    # последняя показанная фраза берётся из БД (работает даже после перезапуска бота)
+    last_id = get_last_phrase_id(user_id)
 
-    # Получаем новую фразу, которой ещё не было у пользователя в текущей сессии
-    phrase_data = get_random_phrase_for_user(user_id)
+    phrase = None
+    for _ in range(5):  # до 5 попыток не повторять подряд
+        candidate = get_random_phrase_for_user(user_id)
+        if not candidate:
+            break
+        if candidate["phrase_id"] != last_id:
+            phrase = candidate
+            break
 
-    if not phrase_data:
-=======
-    phrase = get_random_phrase_for_user(user_id)
     if not phrase:
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
+        phrase = get_random_phrase_for_user(user_id)
+
+    if not phrase:
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.add(types.KeyboardButton(Command.ADD_PHRASE))
         bot.send_message(
@@ -204,93 +196,39 @@ def show_next_phrase(message):
         )
         return
 
-<<<<<<< HEAD
-    # Создаем набор неправильных ответов с обязательным исключением правильного
-    # и исключением дублей ошибок
-    wrong_phrases_total = 10  # Запросим с запасом чтобы убрать повторы
-    wrong_answers_raw = get_wrong_phrases(phrase_data['phrase_id'], user_id, wrong_phrases_total)
-    # Фильтруем, чтобы не было той же самой правильной фразы
-    wrong_answers = []
-    wrong_ids = set()
-    for p in wrong_answers_raw:
-        if p['phrase_id'] != phrase_data['phrase_id'] and p['phrase_id'] not in wrong_ids:
-            wrong_answers.append(p)
-            wrong_ids.add(p['phrase_id'])
-        if len(wrong_answers) >= 3:
-            break
+    # фиксируем, что фраза была показана (важно для новых пользователей)
+    mark_phrase_shown(user_id, phrase["phrase_id"])
 
-    # Если вдруг не хватило неправильных вариантов (мало фраз)
-    # Это деликатное, но крайне редкое явление
-    # Поэтому добавим только уникальные, не совпадающие по английской фразе!
-    all_phrases = [phrase_data] + wrong_answers
-    unique_phrases = []
-    seen_phrase_ids = set()
-    seen_english_phrases = set()
-    for phrase in all_phrases:
-        if (
-            phrase['phrase_id'] not in seen_phrase_ids
-            and phrase['english_phrase'].lower() not in seen_english_phrases
-        ):
-            unique_phrases.append(phrase)
-            seen_phrase_ids.add(phrase['phrase_id'])
-            seen_english_phrases.add(phrase['english_phrase'].lower())
-
-    # Если недостаточно вариантов (меньше 4), постараемся еще выбрать случайные другие неправильные
-    # только НЕ совпадающих по phrase_id и тексту
-    tries = 0
-    while len(unique_phrases) < 4 and tries < 10:
-        additional = get_wrong_phrases(phrase_data['phrase_id'], user_id, 1)
-        if (
-            additional and
-            additional[0]['phrase_id'] not in seen_phrase_ids and
-            additional[0]['english_phrase'].lower() not in seen_english_phrases
-        ):
-            unique_phrases.append(additional[0])
-            seen_phrase_ids.add(additional[0]['phrase_id'])
-            seen_english_phrases.add(additional[0]['english_phrase'].lower())
-        tries += 1
-
-    # Обрезаем лишние - всегда только 4 варианты!
-    if len(unique_phrases) > 4:
-        unique_phrases = unique_phrases[:4]
-
-    random.shuffle(unique_phrases)
-
-    greeting, markup = create_learning_keyboard(unique_phrases, phrase_data['russian_translation'])
-=======
-    # Получаем неправильные варианты
-    wrong_phrases = get_wrong_phrases(phrase["phrase_id"], user_id, limit=6)
-
-    # Собираем все варианты ответов
+    # неправильные варианты
+    wrong_phrases = get_wrong_phrases(phrase["phrase_id"], user_id, 6)
     all_answers = [phrase] + wrong_phrases
 
-    # Гарантируем 4 уникальных варианта
     final_answers = ensure_unique_answers(
         all_answers,
         phrase["phrase_id"],
         phrase["english_phrase"],
-        user_id
+        user_id,
     )
 
     greeting, markup = create_learning_keyboard(
         final_answers,
         phrase["russian_translation"],
     )
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
     bot.send_message(cid, greeting, reply_markup=markup)
 
+    # сохраняем state для проверки ответа
     bot.set_state(user_id, MyStates.target_phrase, cid)
-    with bot.retrieve_data(user_id, cid) as data:
-<<<<<<< HEAD
-        data['target_phrase'] = phrase_data['english_phrase']
-        data['target_phrase_id'] = phrase_data['phrase_id']
-        data['translate_phrase'] = phrase_data['russian_translation']
-        data['all_phrases'] = unique_phrases
-        data['current_english_phrase'] = phrase_data['english_phrase']
+    with bot.retrieve_data(user_id, cid) as st:
+        st.update(
+            {
+                "target_phrase": phrase["english_phrase"],
+                "target_phrase_id": phrase["phrase_id"],
+                "translate_phrase": phrase["russian_translation"],
+                "current_english_phrase": phrase["english_phrase"],
+            }
+        )
 
-    # Отладочная информация
-    print(f"✅ Показана фраза: '{phrase_data['english_phrase']}'")
-    print(f"   Варианты ответов: {[p['english_phrase'] for p in unique_phrases]}")
+
 
 
 @bot.message_handler(func=lambda message: message.text == Command.NEXT)
@@ -325,12 +263,14 @@ def show_examples_button(message):
 
     # Получаем данные из состояния
     with bot.retrieve_data(user_id, cid) as data:
-        if 'current_english_phrase' in data and data['current_english_phrase']:
-            target_phrase = data['current_english_phrase']
-        elif 'target_phrase' in data and data['target_phrase']:
-            target_phrase = data['target_phrase']
+        if "current_english_phrase" in data and data["current_english_phrase"]:
+            target_phrase = data["current_english_phrase"]
+        elif "target_phrase" in data and data["target_phrase"]:
+            target_phrase = data["target_phrase"]
         else:
-            bot.send_message(cid, "❌ Сначала выберите фразу для изучения с помощью /start")
+            bot.send_message(
+                cid, "❌ Сначала выберите фразу для изучения с помощью /start"
+            )
             return
 
     bot.send_message(cid, "🔍 Ищу примеры использования...")
@@ -338,10 +278,10 @@ def show_examples_button(message):
     examples_text = get_phrase_examples(target_phrase)
 
     response = f"📚 *Примеры для фразы:* `{target_phrase}`\n\n{examples_text}"
-    bot.send_message(cid, response, parse_mode='Markdown')
+    bot.send_message(cid, response, parse_mode="Markdown")
 
 
-@bot.message_handler(commands=['examples'])
+@bot.message_handler(commands=["examples"])
 def show_examples_command(message):
     """Команда для показа примеров использования"""
     cid = message.chat.id
@@ -349,12 +289,14 @@ def show_examples_command(message):
 
     # Получаем данные из состояния
     with bot.retrieve_data(user_id, cid) as data:
-        if 'current_english_phrase' in data and data['current_english_phrase']:
-            target_phrase = data['current_english_phrase']
-        elif 'target_phrase' in data and data['target_phrase']:
-            target_phrase = data['target_phrase']
+        if "current_english_phrase" in data and data["current_english_phrase"]:
+            target_phrase = data["current_english_phrase"]
+        elif "target_phrase" in data and data["target_phrase"]:
+            target_phrase = data["target_phrase"]
         else:
-            bot.send_message(cid, "❌ Сначала выберите фразу для изучения с помощью /start")
+            bot.send_message(
+                cid, "❌ Сначала выберите фразу для изучения с помощью /start"
+            )
             return
 
     bot.send_message(cid, "🔍 Ищу примеры использования...")
@@ -362,7 +304,7 @@ def show_examples_command(message):
     examples_text = get_phrase_examples(target_phrase)
 
     response = f"📚 *Примеры для фразы:* `{target_phrase}`\n\n{examples_text}"
-    bot.send_message(cid, response, parse_mode='Markdown')
+    bot.send_message(cid, response, parse_mode="Markdown")
 
 
 @bot.message_handler(func=lambda message: True, state=MyStates.target_phrase)
@@ -372,20 +314,28 @@ def check_answer(message):
     user_id = message.from_user.id
 
     with bot.retrieve_data(user_id, cid) as data:
-        target_phrase = data['target_phrase']
-        target_phrase_id = data['target_phrase_id']
+        target_phrase = data["target_phrase"]
+        target_phrase_id = data["target_phrase_id"]
 
     user_answer = message.text.strip()
 
     # Проверяем, является ли ответ одной из кнопок команд
-    if user_answer in [Command.NEXT, Command.ADD_PHRASE, Command.DELETE_PHRASE, Command.STATS, Command.EXAMPLES]:
+    if user_answer in [
+        Command.NEXT,
+        Command.ADD_PHRASE,
+        Command.DELETE_PHRASE,
+        Command.STATS,
+        Command.EXAMPLES,
+    ]:
         return  # Игнорируем нажатия командных кнопок
 
     # Проверяем правильность ответа
     if user_answer.lower() == target_phrase.lower():
         # Правильный ответ
         update_user_progress(user_id, target_phrase_id, True)
-        bot.send_message(cid, "✅ *Правильно!* Отличная работа! 🎉", parse_mode='Markdown')
+        bot.send_message(
+            cid, "✅ *Правильно!* Отличная работа! 🎉", parse_mode="Markdown"
+        )
 
         # Показываем следующий вопрос через 1 секунду
         time.sleep(1)
@@ -396,22 +346,24 @@ def check_answer(message):
 
         # Показываем правильный ответ
         with bot.retrieve_data(user_id, cid) as data:
-            correct_translation = data['translate_phrase']
+            correct_translation = data["translate_phrase"]
 
         bot.send_message(
             cid,
             f"❌ *Неправильно.*\n\nПравильный ответ: `{target_phrase}`\nПеревод: {correct_translation}",
-            parse_mode='Markdown'
+            parse_mode="Markdown",
         )
 
         # Предлагаем продолжить
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         next_btn = types.KeyboardButton(Command.NEXT)
         markup.add(next_btn)
-        bot.send_message(cid, "Нажмите 'Дальше ⏭' для продолжения", reply_markup=markup)
+        bot.send_message(
+            cid, "Нажмите 'Дальше ⏭' для продолжения", reply_markup=markup
+        )
 
 
-@bot.message_handler(commands=['stats'])
+@bot.message_handler(commands=["stats"])
 def show_stats(message):
     """Показывает статистику пользователя"""
     cid = message.chat.id
@@ -419,73 +371,41 @@ def show_stats(message):
 
     total_phrases = get_user_phrase_count(user_id)
     learned_phrases = get_learned_phrases_count(user_id)
+    progress = int((learned_phrases / total_phrases * 100)) if total_phrases > 0 else 0
 
-    stats_text = f"📊 *Ваша статистика:*\n\n" \
-                 f"📚 Всего фраз: {total_phrases}\n" \
-                 f"✅ Изучено: {learned_phrases}\n" \
-                 f"🎯 Прогресс: {learned_phrases}/{total_phrases}"
+    stats_text = (
+        f"📊 *Ваша статистика:*\n\n"
+        f"📚 Всего фраз: {total_phrases}\n"
+        f"✅ Изучено: {learned_phrases}\n"
+        f"🎯 Прогресс: {progress}%\n"
+        f"📈 Соотношение: {learned_phrases}/{total_phrases}"
+    )
 
-    bot.send_message(cid, stats_text, parse_mode='Markdown')
-=======
-        data.update(
-            {
-                "target_phrase": phrase["english_phrase"],
-                "target_phrase_id": phrase["phrase_id"],
-                "translate_phrase": phrase["russian_translation"],
-                "current_english_phrase": phrase["english_phrase"],
-            }
-        )
+    bot.send_message(cid, stats_text, parse_mode="Markdown")
 
 
-@bot.message_handler(func=lambda m: m.text == Command.NEXT)
-def next_phrase(message):
-    """Обработчик кнопки 'Дальше'."""
-    show_next_phrase(message)
-
-
-@bot.message_handler(func=lambda m: m.text == Command.STATS)
-def show_stats(message):
-    """Показывает статистику пользователя."""
-    user_id = message.from_user.id
-    total = get_user_phrase_count(user_id)
-    learned = get_learned_phrases_count(user_id)
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
-
-    progress = int((learned / total * 100)) if total > 0 else 0
-
-<<<<<<< HEAD
 def add_phrase(message):
     """Начинает процесс добавления новой фразы"""
     cid = message.chat.id
     user_id = message.from_user.id
 
     bot.set_state(user_id, MyStates.add_new_phrase, cid)
-    
+
     # Создаем клавиатуру с кнопкой отмены
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     cancel_btn = types.KeyboardButton("❌ Отмена")
     markup.add(cancel_btn)
-    
+
     bot.send_message(
         cid,
         "📝 *Добавление новой фразы*\n\n"
         "Введите английскую фразу:\n\n"
         "Или нажмите '❌ Отмена' для отмены операции",
         reply_markup=markup,
-        parse_mode='Markdown'
-=======
-    text = (
-        "📊 *Ваша статистика:*\n\n"
-        f"📚 Всего фраз: {total}\n"
-        f"✅ Изучено: {learned}\n"
-        f"🎯 Прогресс: {progress}%\n"
-        f"📈 Соотношение: {learned}/{total}"
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
+        parse_mode="Markdown",
     )
-    bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 
-<<<<<<< HEAD
 @bot.message_handler(state=MyStates.add_new_phrase)
 def save_new_phrase(message):
     """Сохраняет новую фразу"""
@@ -495,22 +415,29 @@ def save_new_phrase(message):
     user_input = message.text.strip()
 
     # Проверка на отмену
-    if user_input == "❌ Отмена" or user_input.lower() in ["отмена", "cancel", "отменить"]:
+    if user_input == "❌ Отмена" or user_input.lower() in [
+        "отмена",
+        "cancel",
+        "отменить",
+    ]:
         bot.delete_state(user_id, cid)
         bot.send_message(
             cid,
             "❌ Добавление фразы отменено.",
-            reply_markup=types.ReplyKeyboardRemove()
+            reply_markup=types.ReplyKeyboardRemove(),
         )
         show_next_phrase(message)
         return
 
     if not user_input:
-        bot.send_message(cid, "❌ Фраза не может быть пустой. Попробуйте еще раз или нажмите '❌ Отмена':")
+        bot.send_message(
+            cid,
+            "❌ Фраза не может быть пустой. Попробуйте еще раз или нажмите '❌ Отмена':",
+        )
         return
 
     with bot.retrieve_data(user_id, cid) as data:
-        data['new_english_phrase'] = user_input
+        data["new_english_phrase"] = user_input
 
     # Создаем клавиатуру с кнопкой отмены
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -523,7 +450,7 @@ def save_new_phrase(message):
         "Теперь введите русский перевод:\n\n"
         "Или нажмите '❌ Отмена' для отмены операции",
         reply_markup=markup,
-        parse_mode='Markdown'
+        parse_mode="Markdown",
     )
 
     # Меняем состояние на ожидание перевода
@@ -539,22 +466,29 @@ def save_translation(message):
     user_input = message.text.strip()
 
     # Проверка на отмену
-    if user_input == "❌ Отмена" or user_input.lower() in ["отмена", "cancel", "отменить"]:
+    if user_input == "❌ Отмена" or user_input.lower() in [
+        "отмена",
+        "cancel",
+        "отменить",
+    ]:
         bot.delete_state(user_id, cid)
         bot.send_message(
             cid,
             "❌ Добавление фразы отменено.",
-            reply_markup=types.ReplyKeyboardRemove()
+            reply_markup=types.ReplyKeyboardRemove(),
         )
         show_next_phrase(message)
         return
 
     if not user_input:
-        bot.send_message(cid, "❌ Перевод не может быть пустым. Попробуйте еще раз или нажмите '❌ Отмена':")
+        bot.send_message(
+            cid,
+            "❌ Перевод не может быть пустым. Попробуйте еще раз или нажмите '❌ Отмена':",
+        )
         return
 
     with bot.retrieve_data(user_id, cid) as data:
-        english_phrase = data['new_english_phrase']
+        english_phrase = data["new_english_phrase"]
 
     # Добавляем фразу в базу
     success = add_custom_phrase(user_id, english_phrase, user_input)
@@ -566,13 +500,13 @@ def save_translation(message):
             f"🇬🇧 `{english_phrase}`\n"
             f"🇷🇺 `{user_input}`\n\n"
             f"Теперь она будет появляться в ваших занятиях!",
-            parse_mode='Markdown'
+            parse_mode="Markdown",
         )
     else:
         bot.send_message(
             cid,
             "❌ Не удалось добавить фразу. Возможно, она уже существует.",
-            parse_mode='Markdown'
+            parse_mode="Markdown",
         )
 
     # Сбрасываем состояние и показываем следующую фразу
@@ -592,26 +526,26 @@ def delete_phrase(message):
         bot.send_message(
             cid,
             "❌ У вас нет фраз для удаления. Добавьте фразы с помощью кнопки 'Добавить фразу ➕'",
-            parse_mode='Markdown'
+            parse_mode="Markdown",
         )
         return
 
     # Создаем inline-клавиатуру с фразами
     markup = types.InlineKeyboardMarkup(row_width=1)
-    
+
     # Ограничиваем количество фраз для отображения (чтобы не было слишком длинного списка)
     display_phrases = user_phrases[:20]  # Показываем первые 20 фраз
-    
+
     for phrase in display_phrases:
-        phrase_text = phrase['english_phrase']
+        phrase_text = phrase["english_phrase"]
         # Обрезаем длинные фразы для кнопки
         button_text = phrase_text[:40] + "..." if len(phrase_text) > 40 else phrase_text
-        status_icon = "✅" if phrase['is_learned'] else "📖"
+        status_icon = "✅" if phrase["is_learned"] else "📖"
         button_text = f"{status_icon} {button_text}"
-        
+
         callback_data = f"delete_phrase_{phrase['phrase_id']}"
         markup.add(types.InlineKeyboardButton(button_text, callback_data=callback_data))
-    
+
     # Добавляем кнопку отмены
     cancel_btn = types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_delete")
     markup.add(cancel_btn)
@@ -619,16 +553,16 @@ def delete_phrase(message):
     phrases_text = "🗑️ *Выберите фразу для удаления:*\n\n"
     if len(user_phrases) > 20:
         phrases_text += f"*Показано первых 20 из {len(user_phrases)} фраз*\n\n"
-    
+
     bot.send_message(
         cid,
         phrases_text,
         reply_markup=markup,
-        parse_mode='Markdown'
+        parse_mode="Markdown",
     )
 
 
-@bot.message_handler(commands=['debug'])
+@bot.message_handler(commands=["debug"])
 def debug_user(message):
     """Команда для отладки прогресса пользователя"""
     cid = message.chat.id
@@ -646,7 +580,8 @@ def debug_user(message):
 
 # ==================== АДМИНИСТРАТИВНЫЕ КОМАНДЫ ====================
 
-@bot.message_handler(commands=['admin'])
+
+@bot.message_handler(commands=["admin"])
 def admin_panel(message):
     """
     Панель администратора для управления напоминаниями
@@ -664,40 +599,38 @@ def admin_panel(message):
 
     # Кнопки для управления напоминаниями
     test_reminder_btn = types.InlineKeyboardButton(
-        "📨 Тестовое напоминание",
-        callback_data="test_reminder"
+        "📨 Тестовое напоминание", callback_data="test_reminder"
     )
     status_btn = types.InlineKeyboardButton(
-        "📊 Статус напоминаний",
-        callback_data="reminder_status"
+        "📊 Статус напоминаний", callback_data="reminder_status"
     )
     send_to_all_btn = types.InlineKeyboardButton(
-        "📢 Сообщение всем",
-        callback_data="send_to_all"
+        "📢 Сообщение всем", callback_data="send_to_all"
     )
     user_stats_btn = types.InlineKeyboardButton(
-        "👥 Статистика пользователей",
-        callback_data="user_stats"
+        "👥 Статистика пользователей", callback_data="user_stats"
     )
 
     markup.add(test_reminder_btn, status_btn)
     markup.add(send_to_all_btn, user_stats_btn)
 
-    admin_info = f"👑 *Панель администратора*\n\n" \
-                 f"Приветствую, {message.from_user.first_name}!\n" \
-                 f"Username: @{username}\n" \
-                 f"ID: {user_id}\n\n" \
-                 f"Выберите действие:"
+    admin_info = (
+        f"👑 *Панель администратора*\n\n"
+        f"Приветствую, {message.from_user.first_name}!\n"
+        f"Username: @{username}\n"
+        f"ID: {user_id}\n\n"
+        f"Выберите действие:"
+    )
 
     bot.send_message(
         cid,
         admin_info,
         reply_markup=markup,
-        parse_mode='Markdown'
+        parse_mode="Markdown",
     )
 
 
-@bot.message_handler(commands=['broadcast'])
+@bot.message_handler(commands=["broadcast"])
 def broadcast_message(message):
     """
     Рассылка сообщения всем пользователям (только для администратора)
@@ -714,7 +647,7 @@ def broadcast_message(message):
         cid,
         "📢 *Режим рассылки*\n\n"
         "Отправьте сообщение, которое будет разослано всем пользователям:",
-        parse_mode='Markdown'
+        parse_mode="Markdown",
     )
 
     bot.register_next_step_handler(message, process_broadcast_message)
@@ -734,6 +667,7 @@ def process_broadcast_message(message):
     broadcast_text = message.text
 
     from database import get_connection
+
     conn = get_connection()
     cur = conn.cursor()
 
@@ -748,94 +682,32 @@ def process_broadcast_message(message):
 
         for user_id in users:
             try:
-                bot.send_message(user_id, f"📢 *Сообщение от администратора:*\n\n{broadcast_text}",
-                                 parse_mode='Markdown')
+                bot.send_message(
+                    user_id,
+                    f"📢 *Сообщение от администратора:*\n\n{broadcast_text}",
+                    parse_mode="Markdown",
+                )
                 success_count += 1
-            except Exception as e:
+            except Exception:
                 fail_count += 1
 
         # Отправляем отчет администратору
-        report = f"📊 *Отчет о рассылке:*\n\n" \
-                 f"✅ Успешно: {success_count}\n" \
-                 f"❌ Не удалось: {fail_count}\n" \
-                 f"📨 Всего пользователей: {len(users)}"
-
-        bot.send_message(cid, report, parse_mode='Markdown')
-=======
-@bot.message_handler(func=lambda m: m.text == Command.EXAMPLES)
-def show_examples(message):
-    """Показывает примеры использования текущей фразы."""
-    cid = message.chat.id
-    user_id = message.from_user.id
-
-    with bot.retrieve_data(user_id, cid) as data:
-        phrase = data.get("current_english_phrase")
-
-    if not phrase:
-        bot.send_message(cid, "❌ Сначала выберите фразу.")
-        return
-
-    bot.send_message(cid, "🔍 Ищу примеры использования...")
-    try:
-        examples = get_phrase_examples(phrase)
-        if examples.startswith("❌"):
-            bot.send_message(cid, examples)
-        else:
-            bot.send_message(
-                cid,
-                f"📚 *Примеры для фразы:* `{phrase}`\n\n{examples}",
-                parse_mode="Markdown",
-            )
-    except Exception as e:
-        logger.error(f"Ошибка при получении примеров: {e}")
-        bot.send_message(
-            cid,
-            "❌ Произошла ошибка при получении примеров. Попробуйте позже.",
+        report = (
+            f"📊 *Отчет о рассылке:*\n\n"
+            f"✅ Успешно: {success_count}\n"
+            f"❌ Не удалось: {fail_count}\n"
+            f"📨 Всего пользователей: {len(users)}"
         )
 
-
-@bot.message_handler(state=MyStates.target_phrase)
-def check_answer(message):
-    """Проверяет ответ пользователя."""
-    user_id = message.from_user.id
-    cid = message.chat.id
-
-    # Игнорируем команды
-    if message.text in [cmd for cmd in vars(Command).values()]:
-        return
-
-    with bot.retrieve_data(user_id, cid) as data:
-        correct = data["target_phrase"]
-        phrase_id = data["target_phrase_id"]
-        translation = data["translate_phrase"]
-
-    is_correct = message.text.lower() == correct.lower()
-
-    try:
-        update_user_progress(user_id, phrase_id, is_correct)
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
-
-        if is_correct:
-            bot.send_message(cid, "✅ *Правильно!* 🎉", parse_mode="Markdown")
-            time.sleep(1)
-            show_next_phrase(message)
-        else:
-            bot.send_message(
-                cid,
-                f"❌ *Неправильно.*\n\n"
-                f"Правильный ответ: `{correct}`\n"
-                f"Перевод: {translation}",
-                parse_mode="Markdown",
-            )
+        bot.send_message(cid, report, parse_mode="Markdown")
     except Exception as e:
-<<<<<<< HEAD
         bot.send_message(cid, f"❌ Ошибка при рассылке: {e}")
     finally:
         cur.close()
         conn.close()
 
 
-@bot.message_handler(commands=['myid'])
+@bot.message_handler(commands=["myid"])
 def get_my_id(message):
     """Показывает user_id пользователя"""
     user_id = message.from_user.id
@@ -846,16 +718,18 @@ def get_my_id(message):
 
     admin_status = "👑 АДМИНИСТРАТОР" if is_user_admin else "👤 ПОЛЬЗОВАТЕЛЬ"
 
-    response = f"🆔 *Ваши данные:*\n\n" \
-               f"Имя: {first_name}\n" \
-               f"Username: @{username}\n" \
-               f"User ID: `{user_id}`\n" \
-               f"Статус: {admin_status}"
+    response = (
+        f"🆔 *Ваши данные:*\n\n"
+        f"Имя: {first_name}\n"
+        f"Username: @{username}\n"
+        f"User ID: `{user_id}`\n"
+        f"Статус: {admin_status}"
+    )
 
-    bot.send_message(message.chat.id, response, parse_mode='Markdown')
+    bot.send_message(message.chat.id, response, parse_mode="Markdown")
 
 
-@bot.message_handler(commands=['users'])
+@bot.message_handler(commands=["users"])
 def show_users_stats(message):
     """Показывает статистику по пользователям (только для администратора)"""
     cid = message.chat.id
@@ -867,6 +741,7 @@ def show_users_stats(message):
         return
 
     from database import get_connection
+
     conn = get_connection()
     cur = conn.cursor()
 
@@ -876,11 +751,13 @@ def show_users_stats(message):
         total_users = cur.fetchone()[0]
 
         # Количество активных пользователей (с фразами)
-        cur.execute("""
+        cur.execute(
+            """
             SELECT COUNT(DISTINCT user_id) 
             FROM user_phrases 
             WHERE correct_answers > 0
-        """)
+        """
+        )
         active_users = cur.fetchone()[0]
 
         # Общее количество фраз
@@ -891,13 +768,15 @@ def show_users_stats(message):
         cur.execute("SELECT COUNT(*) FROM user_phrases")
         user_phrases_count = cur.fetchone()[0]
 
-        stats_text = f"📈 *Статистика бота:*\n\n" \
-                     f"👥 Всего пользователей: {total_users}\n" \
-                     f"🎯 Активных пользователей: {active_users}\n" \
-                     f"📚 Всего фраз в базе: {total_phrases}\n" \
-                     f"💾 Пользовательских связей: {user_phrases_count}"
+        stats_text = (
+            f"📈 *Статистика бота:*\n\n"
+            f"👥 Всего пользователей: {total_users}\n"
+            f"🎯 Активных пользователей: {active_users}\n"
+            f"📚 Всего фраз в базе: {total_phrases}\n"
+            f"💾 Пользовательских связей: {user_phrases_count}"
+        )
 
-        bot.send_message(cid, stats_text, parse_mode='Markdown')
+        bot.send_message(cid, stats_text, parse_mode="Markdown")
 
     except Exception as e:
         bot.send_message(cid, f"❌ Ошибка при получении статистики: {e}")
@@ -935,46 +814,44 @@ def handle_callback(call):
         status_text = "📊 *Статус напоминаний:*\n\n"
 
         for job in jobs:
-            next_run = job.next_run_time.strftime("%d.%m.%Y %H:%M") if job.next_run_time else "Не запланировано"
+            next_run = (
+                job.next_run_time.strftime("%d.%m.%Y %H:%M")
+                if job.next_run_time
+                else "Не запланировано"
+            )
             status_text += f"• {job.name}:\n   Следующий запуск: {next_run}\n\n"
 
         bot.answer_callback_query(call.id)
-        bot.send_message(cid, status_text, parse_mode='Markdown')
+        bot.send_message(cid, status_text, parse_mode="Markdown")
 
     elif call.data == "send_to_all":
         # Запрашиваем сообщение для рассылки
         bot.answer_callback_query(call.id)
-=======
-        logger.error(f"Ошибка при обновлении прогресса: {e}")
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
-        bot.send_message(
-            cid,
-            "❌ Произошла ошибка при обработке ответа. Попробуйте еще раз.",
-        )
-<<<<<<< HEAD
         bot.register_next_step_handler(call.message, process_broadcast_message)
 
     elif call.data == "user_stats":
         # Показываем статистику пользователей
         bot.answer_callback_query(call.id)
         show_users_stats(call.message)
-    
+
     elif call.data.startswith("delete_phrase_"):
         # Обработка удаления фразы
         try:
             phrase_id = int(call.data.split("_")[2])
-            
+
             # Получаем информацию о фразе перед удалением
             user_phrases = get_user_phrases_list(user_id, limit=1000)
-            phrase_info = next((p for p in user_phrases if p['phrase_id'] == phrase_id), None)
-            
+            phrase_info = next(
+                (p for p in user_phrases if p["phrase_id"] == phrase_id), None
+            )
+
             if phrase_info:
-                english_phrase = phrase_info['english_phrase']
-                russian_translation = phrase_info['russian_translation']
-                
+                english_phrase = phrase_info["english_phrase"]
+                russian_translation = phrase_info["russian_translation"]
+
                 # Удаляем фразу
                 delete_user_phrase(user_id, phrase_id)
-                
+
                 bot.answer_callback_query(call.id, "✅ Фраза удалена")
                 bot.edit_message_text(
                     f"🗑️ *Фраза удалена из вашего набора:*\n\n"
@@ -982,21 +859,21 @@ def handle_callback(call):
                     f"🇷🇺 `{russian_translation}`",
                     cid,
                     call.message.message_id,
-                    parse_mode='Markdown'
+                    parse_mode="Markdown",
                 )
             else:
                 bot.answer_callback_query(call.id, "❌ Фраза не найдена")
         except (ValueError, IndexError) as e:
             bot.answer_callback_query(call.id, "❌ Ошибка при удалении")
             print(f"Ошибка при удалении фразы: {e}")
-    
+
     elif call.data == "cancel_delete":
         # Отмена удаления
         bot.answer_callback_query(call.id, "Отменено")
         bot.edit_message_text(
             "❌ Удаление отменено",
             cid,
-            call.message.message_id
+            call.message.message_id,
         )
 
 
@@ -1020,48 +897,12 @@ def initialize_bot():
 
     print("✅ Бот готов к работе!")
     print("🤖 Запуск бота...")
-=======
-
-
-def initialize_bot():
-    """Инициализирует бота и запускает все системы."""
-    logger.info("Инициализация бота...")
-
-    try:
-        init_db()
-        logger.info("База данных инициализирована")
-
-        load_initial_phrases()
-        logger.info("Начальные фразы загружены")
-
-        reminder_system.start()
-        logger.info("Система напоминаний запущена")
-
-        atexit.register(reminder_system.shutdown)
-        logger.info("✅ Бот готов к работе!")
-
-    except Exception as e:
-        logger.error(f"Ошибка при инициализации бота: {e}")
-        raise
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4
 
 
 # Добавляем кастомные фильтры для работы с состояниями
 bot.add_custom_filter(custom_filters.StateFilter(bot))
 
-<<<<<<< HEAD
 # Инициализация и запуск
-if __name__ == '__main__':
+if __name__ == "__main__":
     initialize_bot()
     bot.infinity_polling(skip_pending=True)
-=======
-if __name__ == "__main__":
-    try:
-        initialize_bot()
-        bot.infinity_polling(skip_pending=True, timeout=60)
-    except KeyboardInterrupt:
-        logger.info("Бот остановлен пользователем")
-    except Exception as e:
-        logger.error(f"Критическая ошибка: {e}")
-        raise
->>>>>>> a4d9af5bfb1dc99b2405ed49f24263429bf183f4

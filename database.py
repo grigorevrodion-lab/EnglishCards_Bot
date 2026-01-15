@@ -106,6 +106,8 @@ def add_user(user_id, username, first_name):
     conn.close()
 
 
+
+
 def get_random_phrase_for_user(user_id):
     conn = get_connection()
     cur = conn.cursor()
@@ -115,31 +117,18 @@ def get_random_phrase_for_user(user_id):
             """
             SELECT p.phrase_id, p.english_phrase, p.russian_translation
             FROM phrases p
-            JOIN user_phrases up ON p.phrase_id = up.phrase_id
-            WHERE up.user_id = %s AND up.is_learned = FALSE
-            ORDER BY up.correct_answers ASC, RANDOM()
+            LEFT JOIN user_phrases up
+              ON up.phrase_id = p.phrase_id AND up.user_id = %s
+            WHERE up.is_learned IS NULL OR up.is_learned = FALSE
+            ORDER BY COALESCE(up.correct_answers, 0) ASC, RANDOM()
             LIMIT 1
             """,
             (user_id,),
         )
 
         row = cur.fetchone()
-        if not row:
-            cur.execute(
-                """
-                SELECT phrase_id, english_phrase, russian_translation
-                FROM phrases
-                ORDER BY RANDOM()
-                LIMIT 1
-                """
-            )
-            row = cur.fetchone()
-
         return (
-            row_to_dict(
-                row,
-                ["phrase_id", "english_phrase", "russian_translation"],
-            )
+            row_to_dict(row, ["phrase_id", "english_phrase", "russian_translation"])
             if row
             else None
         )
@@ -147,6 +136,9 @@ def get_random_phrase_for_user(user_id):
     finally:
         cur.close()
         conn.close()
+
+
+
 
 
 def get_wrong_phrases(correct_phrase_id, user_id, limit=3):
@@ -411,6 +403,50 @@ def debug_user_progress(user_id):
         print(f"\n📊 Отладка прогресса для пользователя {user_id}:")
         for row in rows:
             print(f"  Фраза: {row[1]} | Ответов: {row[2]} | Изучено: {row[3]}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_last_phrase_id(user_id):
+    """Последняя показанная пользователю фраза (или None)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT phrase_id
+            FROM user_phrases
+            WHERE user_id = %s
+            ORDER BY added_at DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def mark_phrase_shown(user_id, phrase_id):
+    """Фиксируем, что фраза показана пользователю (создаём связь user_phrases)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO user_phrases (user_id, phrase_id)
+            VALUES (%s, %s)
+            ON CONFLICT (user_id, phrase_id) DO NOTHING
+            """,
+            (user_id, phrase_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         cur.close()
         conn.close()
